@@ -68,7 +68,6 @@ void *MemoryManager::getList()
     return holeList;
 }
 
-// INCOMPLETE
 void *MemoryManager::allocate(size_t sizeInBytes)
 {
     // Check if the size in bytes is 0
@@ -82,33 +81,38 @@ void *MemoryManager::allocate(size_t sizeInBytes)
     size_t remainder = sizeInBytes % wordSize; // Check for a remainder
     if (remainder > 0) { sizeInWords++; } // If there is a remainder, bump up by one word
     
-    // Search for the first hole that fits the sizeInWords
+    // Fetch the hole list
+    void *holeList = getList();
+
+    // Call the allocator function to get the offset in words
+    size_t offsetInWords = allocator(sizeInWords, holeList);
+
+    // Deallocate the hole list (Dynamically allocated in getList)
+    delete[] holeList;
+
+    // Convert the offset in words to an offset in bytes
+    size_t offsetInBytes = offsetInWords * wordSize;
+    
+    // Update the chosen hole
     for (auto it = holes.begin(); it != holes.end(); ++it)
     {
-        // First hole that fits
-        if (it->size >= sizeInWords)
+        // Matching hole found
+        if (it->offset == offsetInWords)
         {
-            // Allocate the memory
-            int offset = it->offset;
-            allocator(sizeInWords, memoryBlock + offset * wordSize);
+            // Update the hole offset and size
+            it->offset += sizeInWords;
+            it->size -= sizeInWords;
 
-            // Change the hole:
-            it->offset += sizeInWords; // Increment the offset by the size in words
-            it->size -= sizeInWords; // Decrement the size by the size in words
+            // Remove the hole if it has no size
+            if (it->size == 0) { holes.erase(it); }
 
-            // Leave no empty holes
-            if (it->size == 0)
-            {
-                holes.erase(it); // Remove the hole at the iterator
-            }
-
-            // Return the memory
-            return memoryBlock + (offset * wordSize);
+            // Done: exit the loop
+            break;
         }
     }
 
-    // No man's land
-    return nullptr;
+    // Return a pointer to the newly allocated memory
+    return (memoryBlock + offsetInBytes);
 }
 
 // INCOMPLETE
