@@ -1,7 +1,9 @@
 #pragma once
 #include <functional>
 #include <cstdint>
+#include <map>
 #include "Hole.h"
+
 
 class MemoryManager
 {
@@ -19,4 +21,5 @@ class MemoryManager
     std::function<int(int, void *)> allocator = nullptr;
     uint8_t* memoryBlock = nullptr;
     std::vector<Hole> holes = {};
+    std::map<uint8_t*, size_t> allocations = {};
 };

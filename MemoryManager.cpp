@@ -1,5 +1,6 @@
 #include "MemoryManager.h"
 #include <math.h>
+#include <iostream>
 
 MemoryManager::MemoryManager(unsigned wordSize, std::function<int(int, void *)> allocator)
 {
@@ -91,7 +92,7 @@ void *MemoryManager::allocate(size_t sizeInBytes)
     delete[] holeList;
 
     // Convert the offset in words to an offset in bytes
-    size_t offsetInBytes = offsetInWords * wordSize;
+    uint8_t offsetInBytes = offsetInWords * wordSize;
     
     // Update the chosen hole
     for (auto it = holes.begin(); it != holes.end(); ++it)
@@ -111,13 +112,76 @@ void *MemoryManager::allocate(size_t sizeInBytes)
         }
     }
 
+    uint8_t *allocationAddress = memoryBlock + offsetInBytes;
+
+    // Add the allocation to the allocations map
+    allocations[allocationAddress] = sizeInWords;
+
     // Return a pointer to the newly allocated memory
     return (memoryBlock + offsetInBytes);
 }
 
-// INCOMPLETE
 void MemoryManager::free(void *address)
 {
+    // Check if the address is allocated
+    auto it = allocations.find((uint8_t*)address);
+    if (it == allocations.end()) { return; } // Address not found
+    size_t sizeInWords = it->second; // Address found: get the size in words
 
+    // Remove the allocation from the allocations map
+    allocations.erase(it);
+
+    // Determine the offset in bytes (difference between the address and the memory block)
+    size_t offsetInBytes = (uint8_t *)address - memoryBlock;
+
+    // Convert the offset in bytes to an offset in words
+    size_t offsetInWords = offsetInBytes / wordSize;
+
+    for (auto it = holes.begin(); it != holes.end(); ++it)
+    {
+        // Check if a hole is adjacent to the left of the deallocated memory
+        if (it->offset + it->size == offsetInWords)
+        {
+            // Extend the hole to the right
+            it->size += sizeInWords;
+
+            // Check if a hole is adjacent to the right of the deallocated memory (double adjacent)
+            auto itNext = std::next(it);
+            if ((itNext != holes.end()) && (itNext->offset == offsetInWords + sizeInWords))
+            {
+                // Extend the first hole further right
+                it->size += (itNext)->size; 
+
+                // Remove the 2nd hole (left adjacent)
+                holes.erase(itNext);
+
+                return;
+            }
+
+            return;
+        }
+
+        // Check if a hole is only adjacent to the right of the deallocated memory
+        if (it->offset == offsetInWords + sizeInWords)
+        {
+            // Extend the hole to the left
+            it->offset -= sizeInWords; 
+            it->size += sizeInWords;
+            return;
+        }
+        
+        // Check if the deallocated memory is left of the current hole but not adjacent to any
+        if (offsetInWords < it->offset)
+        {
+            Hole newHole { offsetInWords, sizeInWords };
+            holes.insert(it, newHole);
+            return;
+        }
+    }
+
+    // Deallocated memory is at the very end and non-adjacent to any hole
+    Hole newHole { offsetInWords, sizeInWords };
+    holes.push_back(newHole);
+    return;
 }
 
