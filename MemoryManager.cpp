@@ -1,6 +1,7 @@
 #include "MemoryManager.h"
 #include <math.h>
 #include <iostream>
+#include <fcntl.h>
 
 MemoryManager::MemoryManager(unsigned wordSize, std::function<int(int, void *)> allocator)
 {
@@ -185,3 +186,65 @@ void MemoryManager::free(void *address)
     return;
 }
 
+void MemoryManager::setAllocator(std::function<int(int, void *)> allocator) { this->allocator = allocator; }
+
+int MemoryManager::dumpMemoryMap(char *filename)
+{
+    // Open/create the file for writing
+    int openedFile = open(filename, O_TRUNC | O_CREAT | O_WRONLY, 0644);
+
+    // Check if the openedFile was opened/created successfully
+    if (openedFile == -1) { return -1; } 
+
+    // Fetch the hole list
+    void *holeList = getList();
+
+    // Ensure the holeList is valid
+    if (holeList == nullptr) 
+    { 
+        // Cleanup and return error
+        close(openedFile);
+        return -1; 
+    }
+
+    // Fetch the hole count
+    size_t holeCount = ((uint16_t *)holeList)[0];
+    
+    // Text vector
+    std::vector<std::string> textVector;
+
+    for (size_t i = 1; i <= holeCount * 2; i++)
+    {
+        if (i % 2 != 0)
+        {
+            // i is odd, push offset
+            textVector.push_back("[" + std::to_string(((uint16_t *)holeList)[i]) + ", ");
+        }
+        else
+        {
+            // i is even, push size
+            textVector.push_back(std::to_string(((uint16_t *)holeList)[i]) + "]");
+
+            if (i != holeCount * 2)
+            {
+                // Add " - " if it's not the last element
+                textVector.push_back(" - ");
+            }
+        }
+    }
+
+    // Deallocate the hole list (Dynamically allocated in getList)
+    delete[] holeList;
+
+    // Write the text vector to the openedFile
+    for (auto text : textVector)
+    {
+        write(openedFile, text.c_str(), text.length());
+    }
+
+    // Close the file
+    close(openedFile);
+
+    // Success
+    return 0;
+}

@@ -15,6 +15,8 @@ class MemoryManager
     void *getList();
     void *allocate(size_t sizeInBytes);
     void free(void *address);
+    void setAllocator(std::function<int(int, void *)> allocator);
+    int dumpMemoryMap(char *filename);
 
     private:
     unsigned wordSize = 0;
