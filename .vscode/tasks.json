@@ -1,0 +1,28 @@
+// .vscode/tasks.json
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Build CommandLineTest",
+        "type": "shell",
+        "command": "g++",
+        "args": [
+          "-g",
+          "-O0",
+          "-std=c++17",
+          "-Wall",
+          "-Wextra",
+          "CommandLineTest.cpp",
+          "MemoryManager/MemoryManager.cpp",
+          "-o",
+          "CommandLineTest"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": ["$gcc"]
+      }
+    ]
+  }
+  

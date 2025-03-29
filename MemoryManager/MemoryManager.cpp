@@ -1,31 +1,23 @@
 #include "MemoryManager.h"
 #include <math.h>
 #include <iostream>
+#include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
 
 
 MemoryManager::MemoryManager(unsigned wordSize, std::function<int(int, void *)> allocator)
 {
-    // Store the word size and allocator function
     this->wordSize = wordSize;
     this->allocator = allocator;
 }
 
-MemoryManager::~MemoryManager()
-{
-    shutdown();
-}
+MemoryManager::~MemoryManager() { shutdown(); }
 
 void MemoryManager::initialize(size_t sizeInWords)
 {
-    // Check if the size in words or the word size is 0
     if (sizeInWords == 0 || wordSize == 0) { return; }
-
-    // Check if the words are no larger than 65536
     if (sizeInWords > 65536) { return; }
-
-    // Check if the memory block has already been allocated
     if (memoryBlock != nullptr) { shutdown(); }
     
     // Allocate the memory block
@@ -43,11 +35,10 @@ void MemoryManager::shutdown()
     // Deallocate the memory block created by the initialize function
     delete[] memoryBlock;
 
-    // Reset the word size, allocator, memory block, and holes
-    wordSize = 0;
-    allocator = nullptr;
+    // Reset the memory block and holes
     memoryBlock = nullptr;
-    holes = {};
+    holes.clear();
+    allocations.clear();
 }
 
 void *MemoryManager::getList()
@@ -61,9 +52,8 @@ void *MemoryManager::getList()
     // Set the first element to the hole count
     holeList[0] = holeCount;
 
-    int index = 1;
-
     // Loop through and grab the offset and size of each hole
+    int index = 1;
     for (auto it = holes.begin(); it != holes.end(); ++it)
     {
         holeList[index] = it->offset;
@@ -77,50 +67,54 @@ void *MemoryManager::getList()
 
 void *MemoryManager::allocate(size_t sizeInBytes)
 {
-    // Check if the size in bytes is 0
     if (sizeInBytes == 0) { return nullptr; }
+    if (!memoryBlock) { return nullptr; }
 
-    // Check if the memory block is null
-    if (memoryBlock == nullptr) { return nullptr; }
-
-    // Calculate the size in words
+    // Calculate the size in words needed for the allocation
     size_t sizeInWords = sizeInBytes / wordSize;
     size_t remainder = sizeInBytes % wordSize; // Check for a remainder
     if (remainder > 0) { sizeInWords++; } // If there is a remainder, bump up by one word
+    
+    // Ensure the size in words does not exceed memory size
+    if (sizeInWords > this->sizeInWords) { return nullptr; }
     
     // Fetch the hole list
     void *holeList = getList();
     
     // Call the allocator function to get the offset in words
-    size_t offsetInWords = allocator(sizeInWords, holeList);
+    int offset = allocator(sizeInWords, holeList);
 
-    // Deallocate the hole list (Dynamically allocated in getList)
     delete[] static_cast<uint16_t*>(holeList);
+    
+    // Ensure allocation worked
+    if (offset == -1) { return nullptr; }
+
+    // Convert the offset in words to a size_t
+    size_t offsetInWords = static_cast<size_t>(offset);
 
     // Convert the offset in words to an offset in bytes
-    uint8_t offsetInBytes = offsetInWords * wordSize;
+    size_t offsetInBytes = (offsetInWords * wordSize);
     
-    // Update the chosen hole
+    // Update the fitting hole
+    // Search through hole list
     for (auto it = holes.begin(); it != holes.end(); ++it)
     {
-        // Matching hole found
+        // If offset of hole matches, hole is matched
         if (it->offset == offsetInWords)
         {
-            // Update the hole offset and size
             it->offset += sizeInWords;
             it->size -= sizeInWords;
 
-            // Remove the hole if it has no size
+            // Leave no empty hole
             if (it->size == 0) { holes.erase(it); }
 
-            // Done: exit the loop
             break;
         }
     }
 
-    uint8_t *allocationAddress = memoryBlock + offsetInBytes;
+    // Calculate the allocation address for the allocation map
+    uint8_t *allocationAddress = (memoryBlock + offsetInBytes);
 
-    // Add the allocation to the allocations map
     allocations[allocationAddress] = sizeInWords;
 
     // Return a pointer to the newly allocated memory
@@ -129,31 +123,36 @@ void *MemoryManager::allocate(size_t sizeInBytes)
 
 void MemoryManager::free(void *address)
 {
-    // Check if the address is allocated
-    auto it = allocations.find((uint8_t*)address);
+    if (!memoryBlock) { return; }
+
+    // If the given address in before or after the memory block, return null
+    if ((address < memoryBlock) || (address >= memoryBlock + (sizeInWords * wordSize))) { return; }
+    
+    // Ensure the address is allocated
+    auto it = allocations.find((uint8_t*)address); // Look for address
     if (it == allocations.end()) { return; } // Address not found
     size_t sizeInWords = it->second; // Address found: get the size in words
 
-    // Remove the allocation from the allocations map
     allocations.erase(it);
 
     // Determine the offset in bytes (difference between the address and the memory block)
-    size_t offsetInBytes = (uint8_t *)address - memoryBlock;
+    size_t offsetInBytes = ((uint8_t *)address - memoryBlock);
 
     // Convert the offset in bytes to an offset in words
-    size_t offsetInWords = offsetInBytes / wordSize;
+    size_t offsetInWords = (offsetInBytes / wordSize);
 
+    // Perform hole updating
     for (auto it = holes.begin(); it != holes.end(); ++it)
     {
         // Check if a hole is adjacent to the left of the deallocated memory
-        if (it->offset + it->size == offsetInWords)
+        if ((it->offset + it->size) == offsetInWords)
         {
             // Extend the hole to the right
             it->size += sizeInWords;
 
             // Check if a hole is adjacent to the right of the deallocated memory (double adjacent)
             auto itNext = std::next(it);
-            if ((itNext != holes.end()) && (itNext->offset == offsetInWords + sizeInWords))
+            if ((itNext != holes.end()) && (itNext->offset == (offsetInWords + sizeInWords)))
             {
                 // Extend the first hole further right
                 it->size += (itNext)->size; 
@@ -168,7 +167,7 @@ void MemoryManager::free(void *address)
         }
 
         // Check if a hole is only adjacent to the right of the deallocated memory
-        if (it->offset == offsetInWords + sizeInWords)
+        if (it->offset == (offsetInWords + sizeInWords))
         {
             // Extend the hole to the left
             it->offset -= sizeInWords; 
@@ -197,17 +196,14 @@ int MemoryManager::dumpMemoryMap(char *filename)
 {
     // Open/create the file for writing
     int openedFile = open(filename, O_TRUNC | O_CREAT | O_WRONLY, 0644);
-
-    // Check if the openedFile was opened/created successfully
     if (openedFile == -1) { return -1; } 
 
     // Fetch the hole list
     void *holeList = getList();
 
     // Ensure the holeList is valid
-    if (holeList == nullptr) 
+    if (!holeList) 
     { 
-        // Cleanup and return error
         close(openedFile);
         return -1; 
     }
@@ -215,9 +211,7 @@ int MemoryManager::dumpMemoryMap(char *filename)
     // Fetch the hole count
     size_t holeCount = ((uint16_t *)holeList)[0];
     
-    // Text vector
     std::vector<std::string> textVector;
-
     for (size_t i = 1; i <= holeCount * 2; i++)
     {
         if (i % 2 != 0)
@@ -238,14 +232,10 @@ int MemoryManager::dumpMemoryMap(char *filename)
         }
     }
 
-    // Deallocate the hole list (Dynamically allocated in getList)
     delete[] static_cast<uint16_t*>(holeList);
 
     // Write the text vector to the openedFile
-    for (auto text : textVector)
-    {
-        write(openedFile, text.c_str(), text.length());
-    }
+    for (auto text : textVector) { write(openedFile, text.c_str(), text.length());}
 
     // Close the file
     close(openedFile);
@@ -256,65 +246,75 @@ int MemoryManager::dumpMemoryMap(char *filename)
 
 void *MemoryManager::getBitmap()
 {
+    if (!memoryBlock) { return nullptr; }
+    if (sizeInWords == 0) { return nullptr; }
+    
     // Determine the size (bytes) needed for the bitmap
-    size_t bitmapSize = sizeInWords / 8;
+    size_t bitmapSize = (sizeInWords / 8);
 
     // If there is a remainder, one more byte is required
     if (sizeInWords % 8 != 0) { bitmapSize++; }
 
-    // Begin the bitmap with all 1s (all holes)
+    // Declare the bitmap
     uint8_t *bitmap = new uint8_t[bitmapSize];
-    for (size_t i = 0; i < bitmapSize; i++) { bitmap[i] = 0xFF; }
-
-    // Iterate through the holes and mark 0s in the bitmap when a hole is found
-    for (auto it = holes.begin(); it != holes.end(); ++it)
+    
+    // Initialize the bitmap to 0s (all holes)
+    memset(bitmap, 0, bitmapSize);
+    
+    // Create a buffer bitmap of all 1s
+    uint8_t *bufferBitmap = new uint8_t[bitmapSize]; 
+    memset(bufferBitmap, 0xFF, bitmapSize);
+    
+    // Modify the buffer bitmap with 0s where holes exist
+    // Iterate through each hole
+    for (auto it = holes.begin(); it != holes.end(); ++it) 
     {
-        // Set the hole bits to 0 in the bitmap
+        // Iterate through the length (size) of the current hole (it)
         for (size_t i = 0; i < it->size; ++i) 
         {
-            size_t bitIndex = it->offset + i; // Hole offset + i
-            size_t bit = bitIndex % 8; // Get the bit index within the byte
-            size_t byte = bitIndex / 8; // Get the byte index in the bitmap
-            bitmap[byte] &= ~(1 << bit); // Use a mask of 1 that targets the bit, then use ~ to flip it to 0
+            size_t bitIndex = (it->offset + i);
+            
+            // If bits exist beyond memory, ignore them
+            if (bitIndex >= sizeInWords) { continue; }
+            
+            size_t byteIndex = (bitIndex / 8);
+            size_t bitOffset = (bitIndex % 8);
+            
+            // Set the bit to 0 in the buffer bitmap
+            bufferBitmap[byteIndex] &= ~(1 << bitOffset);
         }
     }
-
-    // Reverse the order of the bits in each byte of the bitmap
-    uint8_t original = 0;
-    uint8_t reversed = 0;
-    for (size_t byteIndex = 0; byteIndex < bitmapSize; ++byteIndex)
+    
+    // Now copy the buffer bitmap to the final bitmap
+    memcpy(bitmap, bufferBitmap, bitmapSize);
+    
+    // Ensure the last byte is correct if sizeInWords had a remainder byte
+    if (sizeInWords % 8 != 0) 
     {
-        original = bitmap[byteIndex];
-        reversed = 0;
-
-        for (int bit = 0; bit < 8; ++bit)
-        {
-            // Check each bit in the original byte for a 1 from left to right
-            if (original & (1 << bit))
-            {
-                // If original bit is 1, shift it left in the reversed byte. Use |= to keep previous bits
-                reversed |= (1 << (7 - bit));
-            }
-        }
-
-        bitmap[byteIndex] = reversed;
+        size_t lastByteBits = sizeInWords % 8;
+        size_t lastByteIndex = bitmapSize - 1;
+        
+        // Create a mask with 1s for bits to keep
+        uint8_t mask = 0xFF >> (8 - lastByteBits);
+        
+        // Apply the mask to the last byte
+        bitmap[lastByteIndex] &= mask;
     }
-
-    // Fetch the size of the bitmap in bytes
-    uint16_t bitmapSizeInBytes = bitmapSize;
-
-    // Create a new bitmap to hold the final result
+    
+    delete[] bufferBitmap;
+    
+    // Create the final bitmap with size bytes
     uint8_t *finalBitmap = new uint8_t[bitmapSize + 2];
-
-    finalBitmap[0] = bitmapSizeInBytes & 0xFF; // Keep the rightmost 8 bits via masking and put it in the first byte
-    finalBitmap[1] = (bitmapSizeInBytes >> 8) & 0xFF; // Same thing, but shift right first, then mask, and put it in the second byte
-
-    // Fetch the bitmap data and copy it to the final bitmap
+    
+    // Set the first two bytes (size bytes) in little-endian
+    finalBitmap[0] = bitmapSize & 0xFF;
+    finalBitmap[1] = (bitmapSize >> 8) & 0xFF;
+    
+    // Copy the bitmap data to final
     for (size_t i = 0; i < bitmapSize; i++) { finalBitmap[i + 2] = bitmap[i]; }
 
-    // Prevent memory leaks
     delete[] bitmap;
-
+    
     return finalBitmap;
 }
 
@@ -344,7 +344,7 @@ int bestFit(int sizeInWords, void *list)
         holeSize = holeList[i + 1];
 
         // Check if the hole is large enough
-        if (holeSize >= sizeInWords)
+        if (holeSize >= static_cast<size_t>(sizeInWords))
         {
             // See if new bestFitSize
             if (holeSize < bestFitSize)
@@ -387,7 +387,7 @@ int worstFit(int sizeInWords, void *list)
         holeSize = holeList[i + 1];
 
         // Check if the hole is large enough
-        if (holeSize >= sizeInWords)
+        if (holeSize >= static_cast<size_t>(sizeInWords))
         {
             // See if new worstFitSize
             if (holeSize > worstFitSize)
