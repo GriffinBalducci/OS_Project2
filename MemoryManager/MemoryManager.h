@@ -20,8 +20,6 @@ class MemoryManager
     unsigned getWordSize();
     void *getMemoryStart();
     unsigned getMemoryLimit();
-    int bestFit(int sizeInWords, void *list);
-    int worstFit(int sizeInWords, void *list);
 
     private:
     unsigned wordSize = 0;
