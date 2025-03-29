@@ -1,0 +1,91 @@
+.TH "PROJECT2" "1" "February 2025" "Memory Manager"
+
+.SH NAME
+Project 2 - Memory Manager
+
+.SH SYNOPSIS
+This project involves creating a simulated heap memory manager in C++. It involves things like allocation,
+deallocation, maps, lists, and more.
+
+.SH DESCRIPTION
+.SS Memory Allocation
+Memory is allocated by first setting a large hole in a heap vector and modifying this hole and others to 
+accomadate newly allocated or deallocated memory.
+
+.TP
+\\fBinitialize\\fP
+Builds the memory block and initial hole based on words and word size.
+
+.TP
+\\fBallocate\\fP
+Allocated memory with whatever allocator is set. It then adjusts holes and returns a pointer to the new memory.
+
+.TP
+\\fBfree\\fP
+This functions as deallocation. An address is given to deallocate and is popped out of allocations. Then, the
+adjacent holes are examined and whether to grow or add new holes is determined.
+
+.TP
+\\fBgetBitmap\\fP
+Returns a byte-wise bitmap representing used and free memory blocks. Reverses bits in each byte to match test expectations. 
+The result includes a 2-byte little-endian header with the bitmap size.
+
+This function's goal is to build a bitmap of all the free memory sections (holes) and allocated memory sections. Then,
+once this is determined, a 2-byte `size` is appendded to the front of the map and the pointer to this map is returned.
+
+.TP
+\\fBsetAllocator\\fP
+Sets the allocatior to best-fit or worst-fit or something else.
+
+.SS Helper Methods
+.TP
+\\fBgetList\\fP
+Returns the list of the holes, including the total count, offsets, and sizes.
+
+.TP
+\\fBdumpMemoryMap\\fP
+Writes the current memory map onto a file.
+
+.SH FILES
+.SS Memory Manager Files:
+.TP
+\\fBMemoryManager/MemoryManager.h\\fP
+Class definition and method declarations.
+
+.TP
+\\fBMemoryManager/MemoryManager.cpp\\fP
+Main implementation file for the memory manager, along with best-fit and worst-fit methods.
+
+.TP
+\\fBMemoryManager/Hole.h\\fP
+Struct definition for memory holes.
+
+.TP
+\\fBMakefile\\fP
+Makefile for build the library \\fBlibMemoryManager.a\\fP.
+
+.SS Testing Files:
+.TP
+\\fBCommandLineTest.cpp\\fP
+Used to test the functionality of the program through various test-cases.
+
+.TP
+\\fBtestRunner\\fP
+Outputs the test-case results.
+
+.SH TESTING
+.IP
+- Ran Valgrind to ensure there were no memory leaks.
+.IP
+- Passed test cases allocator fits.
+.IP
+- Ensured that bit reversal was tested and working via debugger and test-cases.
+
+.SH BUGS
+.IP
+- Bitmap was a struggle, especially, because of bits being in the wrong order. This was fixed by using appropriate bitwise operations.
+.IP
+- The last byte on the bitmap was not taken into account and not masked correctly during mapping.
+
+.SH AUTHOR
+Griffin Balducci
