@@ -17,9 +17,11 @@ class MemoryManager
     void free(void *address);
     void setAllocator(std::function<int(int, void *)> allocator);
     int dumpMemoryMap(char *filename);
+    void *getBitmap();
 
     private:
     unsigned wordSize = 0;
+    size_t sizeInWords = 0;
     std::function<int(int, void *)> allocator = nullptr;
     uint8_t* memoryBlock = nullptr;
     std::vector<Hole> holes = {};

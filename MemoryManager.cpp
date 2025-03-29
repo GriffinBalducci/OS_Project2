@@ -31,6 +31,9 @@ void MemoryManager::initialize(size_t sizeInWords)
 
     // Build the big hole
     holes.push_back(Hole { 0, sizeInWords });
+
+    // Save the size in words for later use
+    this->sizeInWords = sizeInWords;
 }
 
 void MemoryManager::shutdown()
@@ -247,4 +250,90 @@ int MemoryManager::dumpMemoryMap(char *filename)
 
     // Success
     return 0;
+}
+
+void *MemoryManager::getBitmap()
+{
+    // Initialize the bitmap
+    std::vector<bool> bitmap;
+
+    // Check for remainder
+    size_t remainder = sizeInWords % 8;
+
+    // Check for needing extra blank byte
+    if (remainder != 0)
+    {
+        size_t extraBits = 8 - remainder;
+        
+        // Resize the bitmap to the size in words + extra bits and fill with ones
+        bitmap.resize(sizeInWords + extraBits, 1);
+    }
+    else
+    {
+        // Resize the bitmap to the size in words and fill with ones
+        bitmap.resize(sizeInWords, 1);
+    }
+
+    // Search for holes
+    for (auto it = holes.begin(); it != holes.end(); ++it)
+    {
+        // Go to the given hole offset and mark the corresponding bit with 0
+        // Then, continue to the end of the hole and mark all bits with 0
+        for (size_t i = it->offset; i < (it->offset + it->size); i++)
+        {
+            bitmap[i] = 0;
+        }
+    }
+
+    // Mirror the bitmap until the remainder byte, if one exists
+    std::vector<bool> bitmapMirrored(bitmap.size(), 1);
+    for (size_t i = 0; i < (bitmap.size() / 8); i++) 
+    {
+        // Mirror the bits in the current byte
+        for (size_t j = 0; j < 8; j++)
+        {
+            // (i * 8) Gives the starting index of the byte in either bitmap
+            // (+ j) Gives the index of the bit in the mirrored byte
+            // (7 - j) Gives the index of the bit in the original byte
+            bitmapMirrored[i * 8 + j] = bitmap[i * 8 + (7 - j)];
+        }
+    }
+    
+    // Fetch the size of the bitmap in two bytes
+    uint16_t bitmapSizeInTwoBytes = (bitmapMirrored.size() / 8);
+
+    // Flip the bitmapSizeInTwoBytes to little endian
+    uint8_t leftBits = static_cast<uint8_t>(bitmapSizeInTwoBytes); // Just keep the right byte with conversion
+    uint8_t rightBits = static_cast<uint8_t>(bitmapSizeInTwoBytes >> 8); // Shift the left byte to the right and keep only it with conversion
+
+    // Create a new vector to hold the bitmap with the size in two bytes
+    std::vector<uint8_t> bitmapWithSize(2 + bitmapMirrored.size() / 8, 0);
+    bitmapWithSize[0] = leftBits;
+    bitmapWithSize[1] = rightBits;
+
+    // Fill the bitmapWithSize with the mirrored bits (per byte)
+    for (size_t byteIndex = 0; byteIndex < bitmapSizeInTwoBytes; ++byteIndex)
+    {
+        uint8_t byte = 0;
+
+        // For each bit in the byte, set the corresponding bit in the byte
+        for (size_t bit = 0; bit < 8; ++bit)
+        {
+            // Check if the bit is true (1) at this bit
+            if (bitmapMirrored[byteIndex * 8 + bit])
+            {
+                byte |= (1 << (7 - bit)); // Shift bit to run from left to right
+            }
+        }
+
+        // Append the byte to the bitmapWithSize vector
+        // The +2 accounts for the two size bytes at the beginning of the vector
+        bitmapWithSize[2 + byteIndex] = byte;
+    }
+
+    // Convert the bitmapWithSize vector to the final required array and pointer
+    uint8_t *finalArray = new uint8_t[bitmapWithSize.size()];
+    std::copy(bitmapWithSize.begin(), bitmapWithSize.end(), finalArray);
+
+    return  finalArray;
 }
