@@ -2,6 +2,8 @@
 #include <math.h>
 #include <iostream>
 #include <fcntl.h>
+#include <unistd.h>
+
 
 MemoryManager::MemoryManager(unsigned wordSize, std::function<int(int, void *)> allocator)
 {
@@ -88,12 +90,12 @@ void *MemoryManager::allocate(size_t sizeInBytes)
     
     // Fetch the hole list
     void *holeList = getList();
-
+    
     // Call the allocator function to get the offset in words
     size_t offsetInWords = allocator(sizeInWords, holeList);
 
     // Deallocate the hole list (Dynamically allocated in getList)
-    delete[] holeList;
+    delete[] static_cast<uint16_t*>(holeList);
 
     // Convert the offset in words to an offset in bytes
     uint8_t offsetInBytes = offsetInWords * wordSize;
@@ -237,7 +239,7 @@ int MemoryManager::dumpMemoryMap(char *filename)
     }
 
     // Deallocate the hole list (Dynamically allocated in getList)
-    delete[] holeList;
+    delete[] static_cast<uint16_t*>(holeList);
 
     // Write the text vector to the openedFile
     for (auto text : textVector)
@@ -326,6 +328,9 @@ void *MemoryManager::getBitmap()
             }
         }
 
+        // If on the last byte of the bitmap w/ unused bits, clear the unused bits
+        if (byteIndex == bitmapSizeInTwoBytes - 1 && (sizeInWords % 8 != 0)) { byte &= 0xFF >> (8 - (sizeInWords % 8)); }        
+
         // Append the byte to the bitmapWithSize vector
         // The +2 accounts for the two size bytes at the beginning of the vector
         bitmapWithSize[2 + byteIndex] = byte;
@@ -336,4 +341,96 @@ void *MemoryManager::getBitmap()
     std::copy(bitmapWithSize.begin(), bitmapWithSize.end(), finalArray);
 
     return  finalArray;
+}
+
+unsigned MemoryManager::getWordSize() { return wordSize; }
+
+void *MemoryManager::getMemoryStart() { return memoryBlock; }
+
+unsigned MemoryManager::getMemoryLimit() { return sizeInWords * wordSize; }
+
+int bestFit(int sizeInWords, void *list)
+{
+    // Cast to original type
+    uint16_t *holeList = (uint16_t *)list;
+    size_t holeCount = holeList[0];
+
+    // Create variables to keep track of the best fit
+    size_t bestFitOffset = 10000;
+    size_t bestFitSize = 10000;
+
+    // Initialize hole size
+    size_t holeSize = 0;
+
+    // Loop through the list of holes
+    for (size_t i = 1; i < holeCount * 2; i += 2)
+    {
+        // Determine hole size
+        holeSize = holeList[i + 1];
+
+        // Check if the hole is large enough
+        if (holeSize >= sizeInWords)
+        {
+            // See if new bestFitSize
+            if (holeSize < bestFitSize)
+            {
+                // Update the best fit size and offset
+                bestFitSize = holeSize;
+                bestFitOffset = holeList[i];
+            }
+        }
+    }
+    
+    if (bestFitOffset == 10000)
+    {
+        // No fit found
+        return -1;
+    }
+    else
+    {
+        return bestFitOffset;
+    }
+}
+
+int worstFit(int sizeInWords, void *list)
+{
+    // Cast to original type
+    uint16_t *holeList = (uint16_t *)list;
+    size_t holeCount = holeList[0];
+
+    // Create variables to keep track of the best fit
+    size_t worstFitOffset = 10000;
+    size_t worstFitSize = 0;
+
+    // Initialize hole size
+    size_t holeSize = 0;
+
+    // Loop through the list of holes
+    for (size_t i = 1; i < holeCount * 2; i += 2)
+    {
+        // Determine hole size
+        holeSize = holeList[i + 1];
+
+        // Check if the hole is large enough
+        if (holeSize >= sizeInWords)
+        {
+            // See if new worstFitSize
+            if (holeSize > worstFitSize)
+            {
+                // Update the best fit size and offset
+                worstFitSize = holeSize;
+                worstFitOffset = holeList[i];
+            }
+        }
+    }
+    
+    if (worstFitOffset == 10000)
+    {
+        // No fit found
+        return -1;
+    }
+    else
+    {
+        return worstFitOffset;
+    }
 }

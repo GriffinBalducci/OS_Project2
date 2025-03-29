@@ -4,7 +4,6 @@
 #include <map>
 #include "Hole.h"
 
-
 class MemoryManager
 {
     public:
@@ -18,6 +17,11 @@ class MemoryManager
     void setAllocator(std::function<int(int, void *)> allocator);
     int dumpMemoryMap(char *filename);
     void *getBitmap();
+    unsigned getWordSize();
+    void *getMemoryStart();
+    unsigned getMemoryLimit();
+    int bestFit(int sizeInWords, void *list);
+    int worstFit(int sizeInWords, void *list);
 
     private:
     unsigned wordSize = 0;
@@ -27,3 +31,6 @@ class MemoryManager
     std::vector<Hole> holes = {};
     std::map<uint8_t*, size_t> allocations = {};
 };
+
+int bestFit(int sizeInWords, void *list);
+int worstFit(int sizeInWords, void *list);
